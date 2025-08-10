@@ -1,66 +1,37 @@
-## Foundry
+# Deflationary ERC20 Token
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+This project implements a custom ERC20 token with a **deflationary mechanism** — a small percentage of tokens are burned on every transfer, reducing the total supply over time.
 
-Foundry consists of:
+## Features
+- ERC20 Standard: Fully compliant with the ERC20 interface.
+- Deflationary Transfers: Automatically burns a set percentage of tokens from each transaction.
+- Owner Controls: Token owner can adjust the burn rate.
+- Supply Transparency: Public view functions for current total supply and burn rate.
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+## How It Works
+When a transfer occurs:
+1. The burn amount is calculated as `(amount * burnRate) / 100`.
+2. The burn amount is sent to the zero address, reducing the total supply.
+3. The remainder is sent to the recipient.
 
-## Documentation
+## Example
+If burnRate is **2%** and Alice sends **100 tokens** to Bob:
+- 2 tokens are burned.
+- 98 tokens go to Bob.
 
-https://book.getfoundry.sh/
+## Requirements
+- Solidity ^0.8.19
 
-## Usage
+## Deployment
+```bash
+# Install dependencies
+npm install @openzeppelin/contracts
 
-### Build
+# Compile the contract
+forge build
 
-```shell
-$ forge build
+# Deploy using Foundry, Hardhat, or Remix
 ```
 
-### Test
-
-```shell
-$ forge test
-```
-
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+## License
+MIT License
