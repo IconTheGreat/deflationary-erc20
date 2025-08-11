@@ -35,8 +35,8 @@ contract MyDeflationaryToken {
     address public immutable treasuryWallet;
     address public immutable hodlersDistributionWallet;
 
-    uint256 private constant MAX_TRANSFER_FEE = 10;
-    uint256 private constant PRECISION = 100;
+    uint256 private constant MAX_TRANSFER_FEE = 1_000; // 10% in basis points
+    uint256 private constant PRECISION = 10_000; // 10000 basis points = 100%
     address public immutable owner;
     string public constant name = "IconToken";
     string public constant symbol = "ICON";
@@ -44,7 +44,7 @@ contract MyDeflationaryToken {
     uint256 private _totalSupply;
 
     mapping(address => uint256) public balances;
-    mapping(address owner => mapping(address spender => uint256 amount)) public approvals;
+    mapping(address => mapping(address => uint256)) public approvals;
 
     // Modifiers
     modifier onlyOwner() {
@@ -60,9 +60,11 @@ contract MyDeflationaryToken {
      * @param _treasuryWallet The address of the treasury wallet.
      * @param _hodlersDistributionWallet The address for hodlers distribution.
      * @param _transferFee The fee charged on transfers, in basis points (1/100th of a percent).
-     * @param _burnPercent The percentage of the transfer fee that is burned.
-     * @param _treasuryPercent The percentage of the transfer fee that goes to the treasury.
-     * @param _hodlersPercent The percentage of the transfer fee that is distributed to hodlers.
+     * @param _burnPercent The percentage of the transfer fee to be burned in bps.
+     * @param _treasuryPercent The percentage of the transfer fee that goes to the treasury in bps.
+     * @param _hodlersPercent The percentage of the transfer fee that is distributed to hodlers in bps.
+     * @dev The sum of burnPercent, treasuryPercent, and hodlersPercent must equal
+     * @dev transferFee. If the transfer fee exceeds MAX_TRANSFER_FEE, it will revert.
      */
     constructor(
         address _treasuryWallet,
@@ -73,6 +75,9 @@ contract MyDeflationaryToken {
         uint256 _hodlersPercent
     ) {
         owner = msg.sender;
+        if (_treasuryWallet == address(0) || _hodlersDistributionWallet == address(0)) {
+            revert MyDeflationaryToken__CantBeZeroAddress();
+        }
         treasuryWallet = _treasuryWallet;
         if (_transferFee > MAX_TRANSFER_FEE) {
             revert MyDeflationaryToken__CantExceedMaxTransferFee();
@@ -109,20 +114,29 @@ contract MyDeflationaryToken {
             revert MyDeflationaryToken__CantBeZeroAddress();
         }
         uint256 fee = (amount * transferFee) / PRECISION;
-        uint256 burnShare = (burnPercent * amount) / PRECISION;
-        uint256 hodlersShare = (hodlersPercent * amount) / PRECISION;
-        uint256 treasury = (treasuryPercent * amount) / PRECISION;
+        uint256 burnShare;
+        uint256 treasuryShare;
+        uint256 hodlersShare;
+        if (fee > 0 && transferFee > 0) {
+            burnShare = (fee * burnPercent) / transferFee;
+            treasuryShare = (fee * treasuryPercent) / transferFee;
+            hodlersShare = fee - burnShare - treasuryShare; // remainder to hodlers
+        } else {
+            burnShare = 0;
+            treasuryShare = 0;
+            hodlersShare = 0;
+        }
 
         uint256 netAmount = amount - fee;
         balances[receiver] += netAmount;
-        balances[treasuryWallet] += treasury;
+        balances[treasuryWallet] += treasuryShare;
         balances[hodlersDistributionWallet] += hodlersShare;
         balances[msg.sender] -= amount;
         _totalSupply -= burnShare; // Reduce total supply by the burned amount
         emit Transfer(msg.sender, receiver, netAmount);
-        emit Transfer(msg.sender, treasuryWallet, treasury);
-        emit Transfer(msg.sender, hodlersDistributionWallet, hodlersShare);
-        emit Transfer(msg.sender, address(0), burnShare);
+        if (treasuryShare > 0) emit Transfer(msg.sender, treasuryWallet, treasuryShare);
+        if (hodlersShare > 0) emit Transfer(msg.sender, hodlersDistributionWallet, hodlersShare);
+        if (burnShare > 0) emit Transfer(msg.sender, address(0), burnShare);
         return true;
     }
 
@@ -136,24 +150,34 @@ contract MyDeflationaryToken {
         if (sender == address(0) || receiver == address(0)) {
             revert MyDeflationaryToken__CantBeZeroAddress();
         }
-
         uint256 fee = (amount * transferFee) / PRECISION;
-        uint256 burnShare = (burnPercent * amount) / PRECISION;
-        uint256 hodlersShare = (hodlersPercent * amount) / PRECISION;
-        uint256 treasury = (treasuryPercent * amount) / PRECISION;
+        uint256 burnShare;
+        uint256 treasuryShare;
+        uint256 hodlersShare;
+
+        if (fee > 0 && transferFee > 0) {
+            burnShare = (fee * burnPercent) / transferFee;
+            treasuryShare = (fee * treasuryPercent) / transferFee;
+            hodlersShare = fee - burnShare - treasuryShare; // remainder to hodlers
+        } else {
+            burnShare = 0;
+            treasuryShare = 0;
+            hodlersShare = 0;
+        }
 
         uint256 netAmount = amount - fee;
         balances[receiver] += netAmount;
-        balances[treasuryWallet] += treasury;
+        balances[treasuryWallet] += treasuryShare;
+
         balances[hodlersDistributionWallet] += hodlersShare;
-        balances[address(0)] += burnShare; // Burn the tokens
+
         balances[sender] -= amount;
         approvals[sender][msg.sender] -= amount; // Decrease the allowance
         _totalSupply -= burnShare; // Reduce total supply by the burned amount
         emit Transfer(sender, receiver, netAmount);
-        emit Transfer(sender, treasuryWallet, treasury);
-        emit Transfer(sender, hodlersDistributionWallet, hodlersShare);
-        emit Transfer(sender, address(0), burnShare);
+        if (treasuryShare > 0) emit Transfer(sender, treasuryWallet, treasuryShare);
+        if (hodlersShare > 0) emit Transfer(sender, hodlersDistributionWallet, hodlersShare);
+        if (burnShare > 0) emit Transfer(sender, address(0), burnShare);
 
         return true;
     }
@@ -161,6 +185,40 @@ contract MyDeflationaryToken {
     function approve(address spender, uint256 amount) public returns (bool) {
         approvals[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+
+    function updateFees(
+        uint256 _newTransferFee,
+        uint256 _newBurnPercent,
+        uint256 _newTreasuryPercent,
+        uint256 _newHodlersPercent
+    ) public onlyOwner {
+        if (_newTransferFee > MAX_TRANSFER_FEE) {
+            revert MyDeflationaryToken__CantExceedMaxTransferFee();
+        }
+        transferFee = _newTransferFee;
+        burnPercent = _newBurnPercent;
+        treasuryPercent = _newTreasuryPercent;
+        hodlersPercent = _newHodlersPercent;
+        uint256 allFees = burnPercent + treasuryPercent + hodlersPercent;
+        if (allFees != _newTransferFee) {
+            revert MyDeflationaryToken__AllFeesMustSumUpToTransferFee();
+        }
+    }
+
+    function increaseAllowance(address spender, uint256 addedValue) public onlyOwner returns (bool) {
+        approvals[msg.sender][spender] += addedValue;
+        emit Approval(msg.sender, spender, approvals[msg.sender][spender]);
+        return true;
+    }
+
+    function decreaseAllowance(address spender, uint256 subtractedValue) public onlyOwner returns (bool) {
+        if (approvals[msg.sender][spender] < subtractedValue) {
+            revert MyDeflationaryToken__NotApprovedForThisAmount();
+        }
+        approvals[msg.sender][spender] -= subtractedValue;
+        emit Approval(msg.sender, spender, approvals[msg.sender][spender]);
         return true;
     }
 
