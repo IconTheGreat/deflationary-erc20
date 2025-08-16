@@ -24,8 +24,6 @@ If burnRate is **2%** and Alice sends **100 tokens** to Bob:
 
 ## Deployment
 ```bash
-# Install dependencies
-npm install @openzeppelin/contracts
 
 # Compile the contract
 forge build
